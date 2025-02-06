@@ -29,10 +29,8 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     if (!req.file) {
       return res.status(400).send('Nenhum arquivo foi enviado.');
     }
-
     const filePath = req.file.path;
     const data = await readCsvFile(filePath);
-
     console.log('Dados lidos do CSV:', data);
 
     for (const row of data) {
@@ -49,7 +47,6 @@ app.post('/upload', upload.single('file'), async (req, res) => {
           channel: slackUserId, // Usa o ID do usuário diretamente
           text: message,
         });
-
         console.log(`Mensagem enviada para ${agentName} (ID: ${slackUserId}):`, message);
 
         // Armazena o ID da mensagem enviada para rastrear reações
@@ -95,7 +92,6 @@ function generateMessage(name, salary, faltas, feriadosTrabalhados) {
     : faltas > 1 
     ? `houve *${faltas} faltas*` 
     : '*não houve faltas*';
-
   const feriadosText = feriadosTrabalhados === 1 
     ? `trabalhou em *${feriadosTrabalhados} feriado*` 
     : feriadosTrabalhados > 1 
@@ -104,12 +100,9 @@ function generateMessage(name, salary, faltas, feriadosTrabalhados) {
 
   return `
 :wave: *Bom dia, ${name}!*
-
 Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do seu salário referente a este mês.
 
-
 *Valor do salário a ser pago neste mês:* US$${salary}
-
 
 *Instruções para emissão da nota:*
 • A nota deve ser emitida até o _penúltimo dia útil do mês_.
@@ -118,20 +111,15 @@ Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do se
   Honorários <mês> - Asesoramiento de atenção al cliente + cambio utilizado (US$ 1 = BR$ 5,55)
   \`\`\`
 
-
 *Detalhes adicionais:*
 • Faltas: ${faltasText}.
 • Feriados trabalhados: ${feriadosText}.
 
-
 *Caso não haja pendências*, você pode emitir a nota com os valores acima até o penúltimo dia útil do mês.
-
 
 Por favor, confirme que recebeu esta mensagem e concorda com os valores acima reagindo com um ✅ (*check*).
 
-
 Agradecemos sua atenção e desejamos um ótimo trabalho!
-
 _Atenciosamente,_  
 *Supervisão Corefone BR*
 `;
@@ -141,7 +129,6 @@ _Atenciosamente,_
 slackApp.event('reaction_added', async ({ event }) => {
   const { reaction, item, user } = event;
 
-  // Verifica se a reação é um ✅ e se a mensagem está no canal correto
   if (reaction === 'white_check_mark' && sentMessages[item.ts]) {
     const { user: slackUserId, name } = sentMessages[item.ts];
     await slackApp.client.chat.postMessage({
@@ -172,7 +159,6 @@ slackApp.event('file_shared', async ({ event }) => {
     const fileInfo = await slackApp.client.files.info({
       file: file_id,
     });
-
     console.log('Arquivo compartilhado:', fileInfo.file);
 
     // Verifica se o arquivo é um CSV
@@ -180,21 +166,17 @@ slackApp.event('file_shared', async ({ event }) => {
       // Baixa o arquivo CSV
       const fileUrl = fileInfo.file.url_private_download;
       const filePath = path.join(__dirname, 'uploads', fileInfo.file.name);
-
       const response = await fetch(fileUrl, {
         headers: {
           Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
         },
       });
-
       const arrayBuffer = await response.arrayBuffer();
       fs.writeFileSync(filePath, Buffer.from(arrayBuffer));
-
       console.log(`Arquivo baixado: ${filePath}`);
 
       // Lê o conteúdo do arquivo CSV
       const data = await readCsvFile(filePath);
-
       console.log('Dados lidos do CSV:', data);
 
       // Processa os dados do CSV
@@ -212,7 +194,6 @@ slackApp.event('file_shared', async ({ event }) => {
             channel: slackUserId, // Usa o ID do usuário diretamente
             text: message,
           });
-
           console.log(`Mensagem enviada para ${agentName} (ID: ${slackUserId}):`, message);
 
           // Armazena o ID da mensagem enviada para rastrear reações
@@ -239,11 +220,12 @@ slackApp.event('file_shared', async ({ event }) => {
   }
 });
 
-// Adiciona rotas para evitar erros de requisições não tratadas
+// Rota para responder aos pings do UptimeRobot
 app.get('/', (req, res) => {
   res.status(200).send('Bot is running!');
 });
 
+// Rota HEAD para evitar erros de requisições não tratadas
 app.head('/', (req, res) => {
   res.status(200).end();
 });
