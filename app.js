@@ -102,22 +102,19 @@ function readCsvFile(filePath) {
  * @returns {string} - Formatted message
  */
 function generateMessage(name, salary, faltas = 0, feriadosTrabalhados = 0) {
-  // Format absence text based on count
   const faltasText = faltas === 1 
     ? `houve *${faltas} falta*` 
     : faltas > 1 
       ? `houve *${faltas} faltas*` 
       : '*não houve faltas*';
   
-  // Format holidays worked text based on count
   const feriadosText = feriadosTrabalhados === 1 
     ? `trabalhou em *${feriadosTrabalhados} feriado*` 
     : feriadosTrabalhados > 1 
       ? `trabalhou em *${feriadosTrabalhados} feriados*` 
       : '*não trabalhou em nenhum feriado*';
 
-  return `
-:wave: *Olá, ${name}!*
+  return `:wave: *Olá, ${name}!*
 Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do seu salário referente a este mês.
 
 *Valor do salário a ser pago neste mês:* US$${salary}
@@ -151,7 +148,8 @@ _Atenciosamente,_
  */
 async function processCSVData(data, channelId) {
   let messagesSent = 0;
-  
+  let reportMessages = '';  // Armazena a lista de mensagens a serem enviadas ao canal
+
   try {
     for (const row of data) {
       const slackUserId = row['Slack User']; 
@@ -166,7 +164,7 @@ async function processCSVData(data, channelId) {
       }
 
       try {
-        // Send DM to the agent
+        // Envia mensagem para o agente
         const message = generateMessage(agentName, salary, faltas, feriadosTrabalhados);
         const result = await slackApp.client.chat.postMessage({
           channel: slackUserId,
@@ -176,7 +174,10 @@ async function processCSVData(data, channelId) {
         logger.info(`Message sent to ${agentName}`, { userId: slackUserId });
         messagesSent++;
 
-        // Store the message info for tracking reactions
+        // Adiciona o relatório com os valores enviados para o canal
+        reportMessages += `\n*${agentName}:* Salário: US$${salary}, Faltas: ${faltas}, Feriados Trabalhados: ${feriadosTrabalhados}`;
+        
+        // Armazena as informações da mensagem para rastrear reações
         sentMessages.set(result.ts, {
           user: slackUserId,
           name: agentName,
@@ -186,11 +187,11 @@ async function processCSVData(data, channelId) {
       }
     }
 
-    // Send confirmation to channel
+    // Envia a confirmação ao canal, incluindo o relatório
     if (channelId) {
       await slackApp.client.chat.postMessage({
         channel: channelId,
-        text: `Planilha processada! ✅ Mensagens enviadas: ${messagesSent}/${data.length}`,
+        text: `Planilha processada! ✅ Mensagens enviadas: ${messagesSent}/${data.length}.\n\n*Detalhes enviados:*${reportMessages}`,
       });
     }
     
