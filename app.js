@@ -34,6 +34,8 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     const data = await readCsvFile(filePath);
     console.log('Dados lidos do CSV:', data);
 
+    let reportMessages = ''; // Para armazenar os valores enviados aos agentes
+
     for (const row of data) {
       const slackUserId = row['Slack User']; // Coluna com o ID do usuário no Slack
       const salary = row['Salary']; // Coluna com o salário
@@ -55,14 +57,17 @@ app.post('/upload', upload.single('file'), async (req, res) => {
           user: slackUserId,
           name: agentName,
         };
+
+        // Adiciona os detalhes ao relatório
+        reportMessages += `\n*${agentName}:* Salário: US$${salary}, Faltas: ${faltas}, Feriados Trabalhados: ${feriadosTrabalhados}`;
       }
     }
 
-    // Responde ao canal privado com um check
+    // Responde ao canal privado com um check e o relatório
     const channelId = req.body.channel_id;
     await slackApp.client.chat.postMessage({
       channel: channelId,
-      text: 'Planilha processada! ✅',
+      text: `Planilha processada! ✅\n\n*Detalhes enviados:*${reportMessages}`,
     });
 
     // Remove o arquivo após o processamento
@@ -185,6 +190,8 @@ slackApp.event('file_shared', async ({ event }) => {
       const data = await readCsvFile(filePath);
       console.log('Dados lidos do CSV:', data);
 
+      let reportMessages = ''; // Para armazenar os valores enviados aos agentes
+
       // Processa os dados do CSV
       for (const row of data) {
         const slackUserId = row['Slack User']; // Coluna com o ID do usuário no Slack
@@ -207,13 +214,16 @@ slackApp.event('file_shared', async ({ event }) => {
             user: slackUserId,
             name: agentName,
           };
+
+          // Adiciona os detalhes ao relatório
+          reportMessages += `\n*${agentName}:* Salário: US$${salary}, Faltas: ${faltas}, Feriados Trabalhados: ${feriadosTrabalhados}`;
         }
       }
 
-      // Responde ao canal privado com um check
+      // Responde ao canal privado com um check e o relatório
       await slackApp.client.chat.postMessage({
         channel: channel_id,
-        text: 'Planilha processada! ✅',
+        text: `Planilha processada! ✅\n\n*Detalhes enviados:*${reportMessages}`,
       });
 
       // Remove o arquivo após o processamento
