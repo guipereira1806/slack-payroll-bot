@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { App } = require('@slack/bolt');
+const { App, ExpressReceiver } = require('@slack/bolt');
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
@@ -36,32 +36,21 @@ const upload = multer({
   }
 });
 
-// Initialize Express app
-const app = express();
+// Create the ExpressReceiver
+const receiver = new ExpressReceiver({
+  signingSecret: process.env.SLACK_SIGNING_SECRET,
+  processBeforeResponse: true
+});
+
+// Access the Express app
+const app = receiver.app;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Initialize Slack app using the Express receiver
+// Initialize Slack app with the ExpressReceiver
 const slackApp = new App({
   token: process.env.SLACK_BOT_TOKEN,
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  socketMode: false,
-  customRoutes: [
-    {
-      path: '/slack/events',
-      method: ['POST'],
-      handler: (req, res) => {
-        // Custom handler for Slack events
-        console.log('Received Slack event');
-        return true; // Continue processing with Bolt
-      }
-    }
-  ],
-  
-  // Use the Express app as the receiver
-  receiver: {
-    app
-  }
+  receiver: receiver
 });
 
 // Store sent messages for tracking reactions
@@ -399,12 +388,9 @@ slackApp.event('file_shared', async ({ event, context }) => {
 const PORT = process.env.PORT || 3000;
 (async () => {
   try {
-    // Start Slack app
-    await slackApp.start();
-    logger.info(`⚡️ Slack Bolt app is running!`);
-    
-    // Log server info
-    logger.info(`🚀 Express server is running on port ${PORT}`);
+    // Start the server
+    await slackApp.start(PORT);
+    logger.info(`⚡️ Slack Bolt app is running on port ${PORT}!`);
     logger.info('Server is ready to receive requests');
   } catch (error) {
     logger.error('Failed to start server', error);
