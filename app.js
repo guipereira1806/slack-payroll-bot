@@ -111,7 +111,7 @@ Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do se
 *Valor do salário a ser pago neste mês:* US$${salary}
 
 *Instruções para emissão da nota:*
-• A nota deve ser emitida até o _penúltimo dia útil do mês_.
+• A nota deve ser emitida até o _último dia útil do mês_.
 • Ao emitir a nota, inclua o valor do câmbio utilizado e o mês de referência. Segue um exemplo:
   \`\`\`
   Honorários <mês> - Asesoramiento de atenção al cliente + cambio utilizado (US$ 1 = BR$ 5,55)
@@ -121,7 +121,7 @@ Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do se
 • Faltas: ${faltasText}.
 • Feriados trabalhados: ${feriadosText}.
 
-*Caso não haja pendências*, você pode emitir a nota com os valores acima até o penúltimo dia útil do mês.
+*Caso não haja pendências*, você pode emitir a nota com os valores acima até o último dia útil do mês.
 
 Por favor, confirme que recebeu esta mensagem e concorda com os valores acima reagindo com um ✅ (*check*).
 
