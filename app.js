@@ -105,7 +105,7 @@ function generateMessage(name, salary, faltas, feriadosTrabalhados) {
     : '*não trabalhou em nenhum feriado*';
 
   return `
-:wave: *Bom dia, ${name}!*
+:wave: *Olá, ${name}!*
 Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do seu salário referente a este mês.
 
 *Valor do salário a ser pago neste mês:* US$${salary}
@@ -121,7 +121,7 @@ Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do se
 • Faltas: ${faltasText}.
 • Feriados trabalhados: ${feriadosText}.
 
-*Caso não haja pendências*, você pode emitir a nota com os valores acima até o último dia útil do mês.
+*Caso não haja pendências*, você pode emitir a nota com os valores acima até o último dia útil do mês. Por favor, envie a nota fiscal para *corefone@domus.global* com cópia para *administracion@corefone.us*, *gilda.romero@corefone.us*, e os supervisores.
 
 Por favor, confirme que recebeu esta mensagem e concorda com os valores acima reagindo com um ✅ (*check*).
 
