@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { App, ExpressReceiver } = require('@slack/bolt'); // 1. Importar ExpressReceiver
+const { App, ExpressReceiver } = require('@slack/bolt');
 const multer = require('multer');
 const fs = require('fs');
 const csv = require('csv-parser');
@@ -8,10 +8,10 @@ const path = require('path');
 // Importa o fetch
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
-// 2. Criar um ExpressReceiver
+// Criar um ExpressReceiver
 const receiver = new ExpressReceiver({ signingSecret: process.env.SLACK_SIGNING_SECRET });
 
-// 3. Inicializa o app do Slack com o receiver
+// Inicializa o app do Slack com o receiver
 const slackApp = new App({
   token: process.env.SLACK_BOT_TOKEN,
   receiver: receiver
@@ -19,14 +19,13 @@ const slackApp = new App({
 
 // Use receiver.app para configurar o middleware e as rotas
 const upload = multer({ dest: 'uploads/' });
-const app = receiver.app; // Usar a instância do Express do receiver
+const app = receiver.app; 
 
 // Armazena as mensagens enviadas para rastrear reações
 const sentMessages = {};
 const processedFiles = new Set(); 
 
 // Rota para receber arquivos via Slash Command
-// Note que usamos "app" que agora é uma referência para receiver.app
 app.post('/upload', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -84,7 +83,7 @@ function readCsvFile(filePath) {
   });
 }
 
-// Função para gerar a mensagem personalizada (sem alterações aqui)
+// Função para gerar a mensagem personalizada
 function generateMessage(name, salary, faltas, feriadosTrabalhados) {
     const faltasText = faltas === 1
         ? `houve *${faltas} falta*`
@@ -125,25 +124,20 @@ _Atenciosamente,_
 }
 
 
-// Eventos do Slack (sem alterações aqui)
-slackApp.event('reaction_added', async ({ event }) => { /* ... */ });
-slackApp.event('message', async ({ event, say }) => { /* ... */ });
-slackApp.event('file_shared', async ({ event }) => { /* ... */ });
+// Listener para mensagens em DMs
+slackApp.event('message', async ({ event, say }) => {
+  const { channel, text, user } = event;
 
-
-// Rota para responder aos pings do UptimeRobot (agora no app do receiver)
-app.get('/', (req, res) => {
-  res.status(200).send('Bot is running!');
+  const conversationType = await slackApp.client.conversations.info({ channel });
+  if (conversationType.channel.is_im) {
+    console.log(`Mensagem recebida de ${user} na DM: ${text}`);
+    await say(`Olá! Recebi sua mensagem: "${text}". Se precisar de algo, estou aqui!`);
+  }
 });
 
-// Rota HEAD (agora no app do receiver)
-app.head('/', (req, res) => {
-  res.status(200).end();
-});
+// Listener para uploads de arquivos
+slackApp.event('file_shared', async ({ event }) => {
+    try {
+        const { file_id, channel_id } = event;
 
-// 4. Iniciar o servidor usando a instância do Express do receiver
-(async () => {
-  const port = process.env.PORT || 3000;
-  await app.listen(port);
-  console.log(`🚀 Express server com Slack Bolt app está rodando na porta ${port}!`);
-})();
+        if (processed
