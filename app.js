@@ -124,7 +124,6 @@ function readCsvFile(filePath) {
 }
 
 function generateMessage(name, salary, faltas, feriadosTrabalhados) {
-    // Sua função generateMessage original aqui (sem alterações)
     const faltasText = faltas === 1 ? `houve *${faltas} falta*` : `houve *${faltas} faltas*`;
     const feriadosText = feriadosTrabalhados === 1 ? `trabalhou em *${feriadosTrabalhados} feriado*` : `trabalhou em *${feriadosTrabalhados} feriados*`;
 
@@ -221,7 +220,7 @@ slackApp.event('reaction_added', async ({ event, client }) => {
         if (reaction === 'white_check_mark' && messageInfo && messageInfo.user === user) {
             const { name } = messageInfo;
             await client.chat.postMessage({
-                channel: process.env.ADMIN_CHANNEL_ID || process.env.CHANNEL_ID, // Use um canal de admin
+                channel: process.env.ADMIN_CHANNEL_ID, // Use um canal de admin para relatórios
                 text: `✅ O agente *${name}* (<@${user}>) confirmou o recebimento do salário e está de acordo com os valores.`,
             });
             // Opcional: remover a mensagem do mapa após a confirmação
@@ -232,6 +231,26 @@ slackApp.event('reaction_added', async ({ event, client }) => {
     }
 });
 
-// Listener para DMs (sem grandes alterações)
+// Listener para DMs
 slackApp.event('message', async ({ event, say }) => {
-    if (event.channel_type ===
+    // Responde apenas a mensagens diretas que não são do próprio bot
+    if (event.channel_type === 'im' && !event.bot_id) {
+        console.log(`Mensagem recebida de ${event.user} na DM: ${event.text}`);
+        await say(`Olá! Sou um bot e não consigo responder conversas. Se precisar de ajuda, contate seu supervisor.`);
+    }
+});
+
+
+// Rotas de health check
+app.get('/', (req, res) => res.status(200).send('Bot is running!'));
+app.head('/', (req, res) => res.status(200).end());
+
+
+// --- INICIALIZAÇÃO DO SERVIDOR ---
+
+(async () => {
+    const port = process.env.PORT || 3000;
+    // CORREÇÃO CRÍTICA: Usar slackApp.start() para que os listeners de evento funcionem.
+    await slackApp.start(port);
+    console.log(`🚀 Slack Bolt app está rodando na porta ${port}!`);
+})();
