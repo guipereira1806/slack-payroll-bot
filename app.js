@@ -1,16 +1,18 @@
 const { App, ExpressReceiver } = require('@slack/bolt');
+const multer = require('multer');
 const fs = require('fs');
 const csv = require('csv-parser');
 const path = require('path');
 const axios = require('axios');
+
+// MELHORIA: Configuração centralizada importada do novo arquivo config.js
 const config = require('./config');
 
 // --- SETUP INICIAL ---
 const uploadDir = path.join(__dirname, 'uploads');
-const jobsDir = path.join(__dirname, 'jobs'); // NOVO: Diretório para arquivos de estado
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-if (!fs.existsSync(jobsDir)) fs.mkdirSync(jobsDir, { recursive: true });
-
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 const receiver = new ExpressReceiver({ signingSecret: config.slack.signingSecret });
 const slackApp = new App({
@@ -18,6 +20,7 @@ const slackApp = new App({
     receiver: receiver
 });
 const app = receiver.app;
+const upload = multer({ dest: 'uploads/' });
 
 // --- CONSTANTES E GERENCIAMENTO DE ESTADO ---
 const CSV_COLS = {
@@ -28,14 +31,116 @@ const CSV_COLS = {
     FERIADOS: 'Feriados Trabalhados'
 };
 
-const sentMessages = new Map(); // Rastreamento de DMs para reações (pode continuar em memória)
+const sentMessages = new Map();
+const processedFiles = new Set();
 
-// REMOVIDO: A variável pendingJobs não é mais necessária, usaremos o sistema de arquivos.
+function trackMessage(timestamp, data) {
+    sentMessages.set(timestamp, data);
+    setTimeout(() => sentMessages.delete(timestamp), config.app.messageExpirationMs);
+}
 
-// --- LÓGICA DE NEGÓCIO E FUNÇÕES AUXILIARES ---
+function trackFile(fileId) {
+    processedFiles.add(fileId);
+    setTimeout(() => processedFiles.delete(fileId), config.app.messageExpirationMs);
+}
 
+// --- LÓGICA DE NEGÓCIO CENTRALIZADA ---
+
+/**
+ * Função central para processar o arquivo CSV e notificar os usuários.
+ * @param {string} filePath - Caminho do arquivo CSV.
+ * @param {string} channelId - ID do canal para enviar o relatório.
+ */
+async function processCsvAndNotify(filePath, channelId) {
+    try {
+        // MELHORIA: A função readCsvFile agora valida os cabeçalhos do arquivo.
+        const data = await readCsvFile(filePath);
+        console.log(`Dados lidos do CSV: ${data.length} linhas.`);
+
+        let reportMessages = '';
+        let successCount = 0;
+        const failedUsers = [];
+
+        for (const row of data) {
+            const agentName = row[CSV_COLS.NAME];
+            try {
+                const slackUserId = row[CSV_COLS.SLACK_ID];
+                const salary = row[CSV_COLS.SALARY];
+
+                if (!slackUserId || !salary || !agentName) {
+                    failedUsers.push(agentName || 'Nome Desconhecido (ID ou Salário ausente)');
+                    continue;
+                }
+                
+                // MELHORIA: Validação robusta para dados numéricos.
+                const faltasRaw = row[CSV_COLS.FALTAS] || 0;
+                const feriadosRaw = row[CSV_COLS.FERIADOS] || 0;
+                const faltas = parseInt(faltasRaw, 10);
+                const feriadosTrabalhados = parseInt(feriadosRaw, 10);
+
+                if (isNaN(faltas) || isNaN(feriadosTrabalhados)) {
+                    console.warn(`Dados inválidos para ${agentName}. Faltas: '${faltasRaw}', Feriados: '${feriadosRaw}'.`);
+                    failedUsers.push(`${agentName} (dados numéricos inválidos)`);
+                    continue;
+                }
+
+                const message = generateMessage(agentName, salary, faltas, feriadosTrabalhados);
+                const result = await slackApp.client.chat.postMessage({
+                    channel: slackUserId,
+                    text: message,
+                });
+
+                console.log(`Mensagem enviada para ${agentName} (ID: ${slackUserId})`);
+                trackMessage(result.ts, { user: slackUserId, name: agentName });
+                successCount++;
+                reportMessages += `\n• *${agentName}:* Salário: US$${salary}, Faltas: ${faltas}, Feriados: ${feriadosTrabalhados}`;
+            } catch (error) {
+                console.error(`Falha ao processar linha para ${agentName}:`, error.data || error.message);
+                failedUsers.push(agentName);
+            }
+        }
+
+        let reportText = `Planilha processada! ✅\n*${successCount} de ${data.length}* mensagens enviadas com sucesso.`;
+        if (reportMessages) {
+            reportText += `\n\n*Detalhes enviados:*${reportMessages}`;
+        }
+        if (failedUsers.length > 0) {
+            reportText += `\n\n❌ *Falha ao enviar para:* ${failedUsers.join(', ')}`;
+        }
+
+        await slackApp.client.chat.postMessage({
+            channel: channelId,
+            text: reportText,
+        });
+
+    } catch (error) {
+        console.error('Falha crítica no processamento do CSV:', error);
+        // Envia feedback específico se o erro for de cabeçalho inválido
+        const errorMessage = error.code === 'INVALID_HEADERS' 
+            ? error.message
+            : 'Ocorreu um erro inesperado ao processar a planilha.';
+            
+        await slackApp.client.chat.postMessage({
+            channel: channelId,
+            text: `❌ ${errorMessage}`
+        });
+    } finally {
+        // MELHORIA CRÍTICA: O bloco finally garante que o arquivo seja deletado,
+        // mesmo que ocorra um erro durante o processamento.
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            console.log(`Arquivo temporário ${filePath} limpo com sucesso.`);
+        }
+    }
+}
+
+/**
+ * Lê e valida um arquivo CSV.
+ * MELHORIA: Adicionada validação de cabeçalhos.
+ * @param {string} filePath - Caminho do arquivo.
+ * @returns {Promise<Array<object>>} - Uma promessa que resolve com os dados do CSV.
+ */
 function readCsvFile(filePath) {
-    // (Esta função permanece a mesma)
     return new Promise((resolve, reject) => {
         const data = [];
         const expectedHeaders = new Set(Object.values(CSV_COLS));
@@ -44,220 +149,131 @@ function readCsvFile(filePath) {
         stream.on('headers', (headers) => {
             const missingHeaders = [...expectedHeaders].filter(h => !headers.includes(h));
             if (missingHeaders.length > 0) {
-                const err = new Error(`Cabeçalhos obrigatórios ausentes: ${missingHeaders.join(', ')}`);
+                const err = new Error(`Cabeçalhos obrigatórios ausentes no CSV: ${missingHeaders.join(', ')}`);
                 err.code = 'INVALID_HEADERS';
-                stream.destroy();
+                stream.destroy(); // Para o processamento
                 reject(err);
             }
         });
+
         stream.on('data', (row) => {
-            if (Object.values(row).some(val => val && val.trim() !== '')) data.push(row);
+            if (Object.values(row).some(val => val && val.trim() !== '')) {
+                data.push(row);
+            }
         });
+
         stream.on('end', () => resolve(data));
         stream.on('error', (error) => reject(error));
     });
 }
 
-function formatDataForPreview(data) {
-    // (Esta função permanece a mesma)
-    const MAX_ROWS_TO_PREVIEW = 25;
-    let previewText = `*Nome* | *Salário* | *Faltas* | *Feriados*\n------------------------------------------------\n`;
-    for (let i = 0; i < Math.min(data.length, MAX_ROWS_TO_PREVIEW); i++) {
-        const row = data[i];
-        previewText += `*${row[CSV_COLS.NAME]}* | US$${row[CSV_COLS.SALARY]} | ${row[CSV_COLS.FALTAS] || 0} | ${row[CSV_COLS.FERIADOS] || 0}\n`;
-    }
-    if (data.length > MAX_ROWS_TO_PREVIEW) {
-        previewText += `\n... e mais *${data.length - MAX_ROWS_TO_PREVIEW}* linha(s).`;
-    }
-    return previewText;
-}
-
-// (generateMessage e outras funções auxiliares permanecem as mesmas)
 function generateMessage(name, salary, faltas, feriadosTrabalhados) {
     const faltasText = faltas === 1 ? `houve *${faltas} falta*` : `houve *${faltas} faltas*`;
     const feriadosText = feriadosTrabalhados === 1 ? `trabalhou em *${feriadosTrabalhados} feriado*` : `trabalhou em *${feriadosTrabalhados} feriados*`;
+
     return `
 :wave: *Olá, ${name}!*
-... (conteúdo da mensagem omitido para brevidade) ...
+Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do seu salário referente a este mês.
+
+*Valor do salário a ser pago neste mês:* US$${salary}
+
+*Instruções para emissão da nota:*
+• A nota deve ser emitida no _último dia útil do mês_.
+• Ao emitir a nota, inclua o valor do câmbio utilizado e o mês de referência. Segue um exemplo:
+  \`\`\`
+  Honorários <mês> - Asesoramiento de atenção al cliente + cambio utilizado (US$ 1 = BR$ 5,55)
+  \`\`\`
+
+*Detalhes adicionais:*
+• Faltas: ${faltas > 0 ? faltasText : '*não houve faltas*'}.
+• Feriados trabalhados: ${feriadosTrabalhados > 0 ? feriadosText : '*não trabalhou em nenhum feriado*'}.
+
+*Caso não haja pendências*, você pode emitir a nota com os valores acima no último dia útil do mês. Por favor, envie a nota fiscal para *corefone@domus.global* com cópia para *administracion@corefone.us*, *gilda.romero@corefone.us*, e os supervisores.
+
+Por favor, confirme que recebeu esta mensagem e concorda com os valores acima reagindo com um ✅ (*check*).
+
+Agradecemos sua atenção e desejamos um ótimo trabalho!
+_Atenciosamente,_  
+*Supervisão Corefone BR*
 `;
 }
 
+// --- ROTAS E LISTENERS ---
 
-// --- LISTENERS DE EVENTOS E AÇÕES ---
-
-// ETAPA 1: Listener para upload de arquivos
+// Listener para uploads de arquivos via UI do Slack
 slackApp.event('file_shared', async ({ event, client }) => {
-    const { file_id: fileId, channel_id: channelId, user_id: userId } = event;
-    const csvFilePath = path.join(uploadDir, `${fileId}.csv`);
-    const jobFilePath = path.join(jobsDir, `${fileId}.json`); // NOVO: Caminho para o arquivo de estado
-
     try {
-        const fileInfo = await client.files.info({ file: fileId });
+        if (processedFiles.has(event.file_id)) {
+            console.log(`Arquivo ${event.file_id} já foi processado, ignorando.`);
+            return;
+        }
+        trackFile(event.file_id);
+
+        const fileInfo = await client.files.info({ file: event.file_id });
         if (fileInfo.file.filetype !== 'csv') return;
 
-        // Download do arquivo
         const response = await axios.get(fileInfo.file.url_private_download, {
-            headers: { 'Authorization': `Bearer ${config.slack.botToken}` }, responseType: 'stream'
+            headers: { 'Authorization': `Bearer ${config.slack.botToken}` },
+            responseType: 'stream'
         });
-        const writer = fs.createWriteStream(csvFilePath);
+
+        const filePath = path.join(uploadDir, `${event.file_id}-${fileInfo.file.name}`);
+        const writer = fs.createWriteStream(filePath);
         response.data.pipe(writer);
+
         await new Promise((resolve, reject) => {
-            writer.on('finish', resolve); writer.on('error', reject);
+            writer.on('finish', resolve);
+            writer.on('error', reject);
         });
 
-        // Lê e valida o CSV
-        const data = await readCsvFile(csvFilePath);
-        
-        // CORREÇÃO: Salva os dados do job em um arquivo JSON em vez de na memória
-        const jobData = { data, csvFilePath, channelId, userId, fileName: fileInfo.file.name };
-        fs.writeFileSync(jobFilePath, JSON.stringify(jobData, null, 2));
+        await processCsvAndNotify(filePath, event.channel_id);
 
-        // Envia a mensagem com os botões
+    } catch (error) {
+        console.error('Erro ao processar o arquivo compartilhado:', error);
         await client.chat.postMessage({
-            channel: channelId,
-            text: `Arquivo \`${fileInfo.file.name}\` processado.`,
-            blocks: [
-                {
-                    type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text: `Olá <@${userId}>! Encontrei *${data.length} usuários* no arquivo \`${fileInfo.file.name}\`.\n\nVerifique os dados antes de prosseguir.`
-                    }
-                },
-                {
-                    type: "actions",
-                    elements: [
-                         { type: "button", text: { type: "plain_text", text: "📄 Visualizar Dados", emoji: true }, value: fileId, action_id: "preview_data_action" },
-                         { type: "button", text: { type: "plain_text", text: "✅ Enviar Notificações", emoji: true }, style: "primary", value: fileId, action_id: "confirm_send_action" },
-                         { type: "button", text: { type: "plain_text", text: "❌ Cancelar", emoji: true }, style: "danger", value: fileId, action_id: "cancel_send_action" }
-                    ]
-                }
-            ]
+            channel: event.channel_id,
+            text: `❌ Ocorreu um erro ao baixar ou processar o arquivo: ${error.message}`
         });
-
-    } catch (error) {
-        console.error('Erro na etapa de upload e análise:', error);
-        await client.chat.postMessage({ channel: channelId, text: `❌ Ocorreu um erro ao processar o arquivo: ${error.message}` });
-        // Limpa os arquivos em caso de erro
-        if (fs.existsSync(csvFilePath)) fs.unlinkSync(csvFilePath);
-        if (fs.existsSync(jobFilePath)) fs.unlinkSync(jobFilePath);
     }
 });
 
-// Listener para o botão "Visualizar Dados"
-slackApp.action('preview_data_action', async ({ ack, body, client }) => {
-    await ack();
-    const jobId = body.actions[0].value;
-    const jobFilePath = path.join(jobsDir, `${jobId}.json`);
-
+// Monitora reações
+slackApp.event('reaction_added', async ({ event, client }) => {
     try {
-        // CORREÇÃO: Lê os dados do arquivo JSON
-        if (!fs.existsSync(jobFilePath)) throw new Error("Job expirado ou não encontrado.");
-        const job = JSON.parse(fs.readFileSync(jobFilePath, 'utf-8'));
+        const { reaction, item, user } = event;
+        const messageInfo = sentMessages.get(item.ts);
 
-        const previewText = formatDataForPreview(job.data);
-        
-        await client.views.open({
-            trigger_id: body.trigger_id,
-            view: {
-                type: 'modal',
-                title: { type: 'plain_text', text: 'Prévia do Arquivo' },
-                close: { type: 'plain_text', text: 'Fechar' },
-                blocks: [
-                    { type: 'section', text: { type: 'mrkdwn', text: `Exibindo as primeiras linhas do arquivo *${job.fileName}*.` } },
-                    { type: 'divider' },
-                    { type: 'section', text: { type: 'mrkdwn', text: previewText } }
-                ]
-            }
-        });
-    } catch (error) {
-        console.error("Falha ao abrir o modal de visualização:", error);
-    }
-});
-
-
-// Listener para o botão de CONFIRMAR
-slackApp.action('confirm_send_action', async ({ ack, body, client }) => {
-    await ack();
-    const jobId = body.actions[0].value;
-    const jobFilePath = path.join(jobsDir, `${jobId}.json`);
-    let job;
-
-    try {
-        // CORREÇÃO: Lê os dados do arquivo JSON
-        if (!fs.existsSync(jobFilePath)) throw new Error("Job expirado ou não encontrado. Por favor, envie o arquivo novamente.");
-        job = JSON.parse(fs.readFileSync(jobFilePath, 'utf-8'));
-        
-        const clickingUser = body.user.id;
-        if (clickingUser !== job.userId) { /* ... (lógica de segurança) ... */ return; }
-
-        await client.chat.update({
-            channel: body.channel.id, ts: body.message.ts,
-            text: `Enviando ${job.data.length} notificações... ⏳`, blocks: []
-        });
-
-        // Lógica de envio e relatório (sem alterações)
-        let successCount = 0;
-        const failedUsers = [];
-        for (const row of job.data) {
-           // ...
+        if (reaction === 'white_check_mark' && messageInfo && messageInfo.user === user) {
+            const { name } = messageInfo;
+            await client.chat.postMessage({
+                channel: config.slack.adminChannelId,
+                text: `✅ O agente *${name}* (<@${user}>) confirmou o recebimento do salário e está de acordo com os valores.`,
+            });
+            sentMessages.delete(item.ts);
         }
-        // ...
-        
-        await client.chat.update({
-            channel: body.channel.id, ts: body.message.ts,
-            text: `Relatório de Envio! ✅\n*${successCount} de ${job.data.length}* mensagens enviadas.`,
-        });
-
     } catch (error) {
-        console.error('Erro ao enviar notificações:', error);
-        await client.chat.update({
-            channel: body.channel.id, ts: body.message.ts,
-            text: `❌ Ocorreu um erro crítico durante o envio: ${error.message}`,
-        });
-    } finally {
-        // CORREÇÃO: Limpa os dois arquivos
-        if (job && fs.existsSync(job.csvFilePath)) fs.unlinkSync(job.csvFilePath);
-        if (fs.existsSync(jobFilePath)) fs.unlinkSync(jobFilePath);
-        console.log(`Job ${jobId} finalizado e arquivos limpos.`);
+        console.error('Erro ao processar reação:', error);
     }
 });
 
-
-// Listener para o botão de CANCELAR
-slackApp.action('cancel_send_action', async ({ ack, body, client }) => {
-    await ack();
-    const jobId = body.actions[0].value;
-    const jobFilePath = path.join(jobsDir, `${jobId}.json`);
-
-    try {
-        if (!fs.existsSync(jobFilePath)) return; // Já foi processado
-        const job = JSON.parse(fs.readFileSync(jobFilePath, 'utf-8'));
-
-        if (body.user.id !== job.userId) return;
-
-        await client.chat.update({
-            channel: body.channel.id, ts: body.message.ts,
-            text: `Operação cancelada por <@${body.user.id}>.`, blocks: []
-        });
-
-        // CORREÇÃO: Limpa os dois arquivos
-        if (fs.existsSync(job.csvFilePath)) fs.unlinkSync(job.csvFilePath);
-        if (fs.existsSync(jobFilePath)) fs.unlinkSync(jobFilePath);
-        console.log(`Job ${jobId} cancelado pelo usuário.`);
-
-    } catch (error) {
-        console.error("Erro ao cancelar o job:", error);
+// Listener para DMs
+slackApp.event('message', async ({ event, say }) => {
+    if (event.channel_type === 'im' && !event.bot_id) {
+        console.log(`Mensagem recebida de ${event.user} na DM: ${event.text}`);
+        await say(`Olá! Sou um bot e não consigo responder conversas. Se precisar de ajuda, contate seu supervisor.`);
     }
 });
 
-
-// Outros Listeners (reações, DMs) e inicialização do servidor (sem alterações)
-slackApp.event('reaction_added', async ({ event, client }) => { /* ... */ });
-slackApp.event('message', async ({ event, say }) => { /* ... */ });
+// Rotas de health check
 app.get('/', (req, res) => res.status(200).send('Bot is running!'));
+
+// --- INICIALIZAÇÃO DO SERVIDOR ---
 (async () => {
     const port = config.server.port;
     await slackApp.start(port);
     console.log(`🚀 Slack Bolt app está rodando na porta ${port}!`);
 })();
+
+// Removido: A rota /upload com multer não é mais necessária,
+// pois o evento 'file_shared' é uma forma mais segura e nativa do Slack
+// de lidar com uploads de arquivos, evitando a exposição de um endpoint público.
