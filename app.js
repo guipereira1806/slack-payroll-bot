@@ -1,5 +1,5 @@
 const { App, ExpressReceiver } = require('@slack/bolt');
-const multer = require('multer');
+// const multer = require('multer'); // <--- REMOVIDO
 const fs = require('fs');
 const csv = require('csv-parser');
 const path = require('path');
@@ -20,7 +20,7 @@ const slackApp = new App({
     receiver: receiver
 });
 const app = receiver.app;
-const upload = multer({ dest: 'uploads/' });
+// const upload = multer({ dest: 'uploads/' }); // <--- REMOVIDO
 
 // --- CONSTANTES E GERENCIAMENTO DE ESTADO ---
 const CSV_COLS = {
@@ -273,7 +273,3 @@ app.get('/', (req, res) => res.status(200).send('Bot is running!'));
     await slackApp.start(port);
     console.log(`🚀 Slack Bolt app está rodando na porta ${port}!`);
 })();
-
-// Removido: A rota /upload com multer não é mais necessária,
-// pois o evento 'file_shared' é uma forma mais segura e nativa do Slack
-// de lidar com uploads de arquivos, evitando a exposição de um endpoint público.
