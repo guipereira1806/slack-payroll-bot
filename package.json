@@ -11,7 +11,7 @@
     "bot",
     "payroll"
   ],
-  "author": "Seu Nome",
+  "author": "Guilherme Pereira",
   "license": "ISC",
   "dependencies": {
     "@slack/bolt": "^3.19.0",
