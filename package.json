@@ -1,20 +1,24 @@
 {
   "name": "slack-corefone-payroll-bot-br",
   "version": "1.0.0",
-  "description": "",
+  "description": "Bot para notificação de folha de pagamento da Corefone BR",
   "main": "app.js",
   "scripts": {
     "start": "node app.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "slack",
+    "bot",
+    "payroll"
+  ],
+  "author": "Seu Nome",
   "license": "ISC",
   "dependencies": {
-    "@slack/bolt": "^4.2.0",
-    "csv-parser": "^3.2.0",
-    "dotenv": "^16.4.7",
-    "express": "^5.0.1",
-    "multer": "^1.4.5-lts.1",
-    "node-fetch": "^3.3.2"
+    "@slack/bolt": "^3.19.0",
+    "axios": "^1.7.2",
+    "csv-parser": "^3.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1"
   }
 }
