@@ -280,13 +280,11 @@ function generateMessage(name, salary, faltas, feriadosTrabalhados) {
             }
         },
         {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": "Agradecemos sua atenção e desejamos um ótimo trabalho!\n_Atenciosamente,_\n*Supervisão Corefone BR*"
-                }
-            ]
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Agradecemos sua atenção e desejamos um ótimo trabalho!\nAtenciosamente,\n*Supervisão Corefone BR*"
+            }
         }
     ];
 }
