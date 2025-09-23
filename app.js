@@ -1,11 +1,24 @@
 const { App, ExpressReceiver } = require('@slack/bolt');
-// const multer = require('multer'); // <--- REMOVIDO
 const fs = require('fs');
 const csv = require('csv-parser');
 const path = require('path');
 const axios = require('axios');
 
 // MELHORIA: Configuração centralizada importada do novo arquivo config.js
+// Certifique-se de ter um arquivo config.js com as variáveis de ambiente
+// module.exports = {
+//   slack: {
+//     signingSecret: process.env.SLACK_SIGNING_SECRET,
+//     botToken: process.env.SLACK_BOT_TOKEN,
+//     adminChannelId: process.env.SLACK_ADMIN_CHANNEL_ID,
+//   },
+//   server: {
+//     port: process.env.PORT || 3000,
+//   },
+//   app: {
+//     messageExpirationMs: 12 * 60 * 60 * 1000 // 12 horas
+//   }
+// };
 const config = require('./config');
 
 // --- SETUP INICIAL ---
@@ -20,7 +33,6 @@ const slackApp = new App({
     receiver: receiver
 });
 const app = receiver.app;
-// const upload = multer({ dest: 'uploads/' }); // <--- REMOVIDO
 
 // --- CONSTANTES E GERENCIAMENTO DE ESTADO ---
 const CSV_COLS = {
@@ -53,7 +65,6 @@ function trackFile(fileId) {
  */
 async function processCsvAndNotify(filePath, channelId) {
     try {
-        // MELHORIA: A função readCsvFile agora valida os cabeçalhos do arquivo.
         const data = await readCsvFile(filePath);
         console.log(`Dados lidos do CSV: ${data.length} linhas.`);
 
@@ -72,7 +83,6 @@ async function processCsvAndNotify(filePath, channelId) {
                     continue;
                 }
                 
-                // MELHORIA: Validação robusta para dados numéricos.
                 const faltasRaw = row[CSV_COLS.FALTAS] || 0;
                 const feriadosRaw = row[CSV_COLS.FERIADOS] || 0;
                 const faltas = parseInt(faltasRaw, 10);
@@ -84,10 +94,13 @@ async function processCsvAndNotify(filePath, channelId) {
                     continue;
                 }
 
-                const message = generateMessage(agentName, salary, faltas, feriadosTrabalhados);
+                // MELHORIA: Usa a nova função que retorna blocos de mensagem
+                const messageBlocks = generateMessage(agentName, salary, faltas, feriadosTrabalhados);
+                
                 const result = await slackApp.client.chat.postMessage({
                     channel: slackUserId,
-                    text: message,
+                    blocks: messageBlocks, // Passa os blocos para a propriedade 'blocks'
+                    text: 'Detalhes de pagamento mensal. Por favor, visualize em um cliente Slack que suporte blocos de mensagem.' // Fallback text
                 });
 
                 console.log(`Mensagem enviada para ${agentName} (ID: ${slackUserId})`);
@@ -115,7 +128,7 @@ async function processCsvAndNotify(filePath, channelId) {
 
     } catch (error) {
         console.error('Falha crítica no processamento do CSV:', error);
-        // Envia feedback específico se o erro for de cabeçalho inválido
+        
         const errorMessage = error.code === 'INVALID_HEADERS' 
             ? error.message
             : 'Ocorreu um erro inesperado ao processar a planilha.';
@@ -125,8 +138,6 @@ async function processCsvAndNotify(filePath, channelId) {
             text: `❌ ${errorMessage}`
         });
     } finally {
-        // MELHORIA CRÍTICA: O bloco finally garante que o arquivo seja deletado,
-        // mesmo que ocorra um erro durante o processamento.
         if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
             console.log(`Arquivo temporário ${filePath} limpo com sucesso.`);
@@ -136,7 +147,6 @@ async function processCsvAndNotify(filePath, channelId) {
 
 /**
  * Lê e valida um arquivo CSV.
- * MELHORIA: Adicionada validação de cabeçalhos.
  * @param {string} filePath - Caminho do arquivo.
  * @returns {Promise<Array<object>>} - Uma promessa que resolve com os dados do CSV.
  */
@@ -151,7 +161,7 @@ function readCsvFile(filePath) {
             if (missingHeaders.length > 0) {
                 const err = new Error(`Cabeçalhos obrigatórios ausentes no CSV: ${missingHeaders.join(', ')}`);
                 err.code = 'INVALID_HEADERS';
-                stream.destroy(); // Para o processamento
+                stream.destroy();
                 reject(err);
             }
         });
@@ -167,41 +177,118 @@ function readCsvFile(filePath) {
     });
 }
 
+/**
+ * Gera um array de Slack Blocks para uma mensagem formatada.
+ * @param {string} name - Nome do usuário.
+ * @param {number} salary - Valor do salário.
+ * @param {number} faltas - Número de faltas.
+ * @param {number} feriadosTrabalhados - Número de feriados trabalhados.
+ * @returns {Array<object>} - Array de blocos de mensagem do Slack.
+ */
 function generateMessage(name, salary, faltas, feriadosTrabalhados) {
-    const faltasText = faltas === 1 ? `houve *${faltas} falta*` : `houve *${faltas} faltas*`;
-    const feriadosText = feriadosTrabalhados === 1 ? `trabalhou em *${feriadosTrabalhados} feriado*` : `trabalhou em *${feriadosTrabalhados} feriados*`;
+    const faltasText = faltas > 0 ? (faltas === 1 ? `houve *${faltas} falta*` : `houve *${faltas} faltas*`) : '*não houve faltas*';
+    const feriadosText = feriadosTrabalhados > 0 ? (feriadosTrabalhados === 1 ? `trabalhou em *${feriadosTrabalhados} feriado*` : `trabalhou em *${feriadosTrabalhados} feriados*`) : '*não trabalhou em nenhum feriado*';
 
-    return `
-:wave: *Olá, ${name}!*
-Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do seu salário referente a este mês.
-
-*Valor do salário a ser pago neste mês:* US$${salary}
-
-*Instruções para emissão da nota:*
-• A nota deve ser emitida no _último dia útil do mês_.
-• Ao emitir a nota, inclua o valor do câmbio utilizado e o mês de referência. Segue um exemplo:
-  \`\`\`
-  Honorários <mês> - Asesoramiento de atenção al cliente + cambio utilizado (US$ 1 = BR$ 5,55)
-  \`\`\`
-
-*Detalhes adicionais:*
-• Faltas: ${faltas > 0 ? faltasText : '*não houve faltas*'}.
-• Feriados trabalhados: ${feriadosTrabalhados > 0 ? feriadosText : '*não trabalhou em nenhum feriado*'}.
-
-*Nome do arquivo da nota fiscal:* envie o anexo do honorário com o nome neste formato: "Nome Sobrenome - Mês.Ano". 
-  \`\`\`
-Por exemplo: Claudia Fonseca - 09.2025
- \`\`\`
-
-
-*Caso não haja pendências*, você pode emitir a nota com os valores acima no último dia útil do mês. Por favor, envie a nota fiscal para *corefone@domus.global* com cópia para *administracion@corefone.us*, *gilda.romero@corefone.us*, e os supervisores.
-
-Por favor, confirme que recebeu esta mensagem e concorda com os valores acima reagindo com um ✅ (*check*).
-
-Agradecemos sua atenção e desejamos um ótimo trabalho!
-_Atenciosamente,_  
-*Supervisão Corefone BR*
-`;
+    return [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "Detalhes de Pagamento Mensal"
+            }
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": `:wave: Olá, *${name}!*`
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do seu salário referente a este mês."
+            }
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": `*Valor a ser pago:* US$*${salary}*`
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": `*Detalhes adicionais:*\n• Faltas: ${faltasText}\n• Feriados trabalhados: ${feriadosText}`
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": `*Instruções para emissão da nota:*\n• A nota deve ser emitida no _último dia útil do mês_.\n• Ao emitir a nota, inclua o valor do câmbio utilizado e o mês de referência. Exemplo:`
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "```\nHonorários <mês> - Asesoramiento de atenção al cliente + cambio utilizado (US$ 1 = BR$ 5,55)\n```"
+            }
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": `*Nome do arquivo da nota fiscal:*\nEnvie o anexo com o nome neste formato:\n"Nome Sobrenome - Mês.Ano"`
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "```\nPor exemplo: Claudia Fonseca - 09.2025\n```"
+            }
+        },
+        {
+            "type": "divider"
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Caso não haja pendências*, você pode emitir a nota fiscal para `corefone@domus.global` com cópia para `administracion@corefone.us`, `gilda.romero@corefone.us`, e os supervisores."
+            }
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "Por favor, confirme que recebeu esta mensagem e concorda com os valores acima reagindo com um ✅ (*check*)."
+            }
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "Agradecemos sua atenção e desejamos um ótimo trabalho!\n_Atenciosamente,_\n*Supervisão Corefone BR*"
+                }
+            ]
+        }
+    ];
 }
 
 // --- ROTAS E LISTENERS ---
@@ -279,5 +366,3 @@ app.get('/', (req, res) => res.status(200).send('Bot is running!'));
     await slackApp.start(port);
     console.log(`🚀 Slack Bolt app está rodando na porta ${port}!`);
 })();
-
-
