@@ -188,7 +188,7 @@ Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do se
 • Faltas: ${faltas > 0 ? faltasText : '*não houve faltas*'}.
 • Feriados trabalhados: ${feriadosTrabalhados > 0 ? feriadosText : '*não trabalhou em nenhum feriado*'}.
 
-**Nome do arquivo da nota fiscal:** envie o anexo do honorário com o nome neste formato: "Nome Sobrenome - Mês.Ano". 
+*Nome do arquivo da nota fiscal:* envie o anexo do honorário com o nome neste formato: "Nome Sobrenome - Mês.Ano". 
   \`\`\`
 Por exemplo: Claudia Fonseca - 09.2025
  \`\`\`
@@ -279,4 +279,5 @@ app.get('/', (req, res) => res.status(200).send('Bot is running!'));
     await slackApp.start(port);
     console.log(`🚀 Slack Bolt app está rodando na porta ${port}!`);
 })();
+
 
