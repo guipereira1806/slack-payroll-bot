@@ -188,6 +188,12 @@ Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do se
 • Faltas: ${faltas > 0 ? faltasText : '*não houve faltas*'}.
 • Feriados trabalhados: ${feriadosTrabalhados > 0 ? feriadosText : '*não trabalhou em nenhum feriado*'}.
 
+**Nome do arquivo da nota fiscal:** envie o anexo do honorário com o nome neste formato: "Nome Sobrenome - Mês.Ano". 
+  \`\`\`
+Por exemplo: Claudia Fonseca - 09.2025
+ \`\`\`
+
+
 *Caso não haja pendências*, você pode emitir a nota com os valores acima no último dia útil do mês. Por favor, envie a nota fiscal para *corefone@domus.global* com cópia para *administracion@corefone.us*, *gilda.romero@corefone.us*, e os supervisores.
 
 Por favor, confirme que recebeu esta mensagem e concorda com os valores acima reagindo com um ✅ (*check*).
@@ -273,3 +279,4 @@ app.get('/', (req, res) => res.status(200).send('Bot is running!'));
     await slackApp.start(port);
     console.log(`🚀 Slack Bolt app está rodando na porta ${port}!`);
 })();
+
