@@ -221,7 +221,7 @@ function generateMessage(name, salary, faltas, feriadosTrabalhados) {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": `*Valor a ser pago:* US$*${salary}*`
+                "text": `*Valor a ser pago:* *US$${salary}*`
             }
         },
         {
@@ -252,7 +252,7 @@ function generateMessage(name, salary, faltas, feriadosTrabalhados) {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": `*Nome do arquivo da nota fiscal:*\nEnvie o anexo com o nome neste formato:\n"Nome Sobrenome - Mês.Ano"`
+                "text": `Envie o anexo com o nome neste formato:\n"Nome Sobrenome - Mês.Ano"`
             }
         },
         {
