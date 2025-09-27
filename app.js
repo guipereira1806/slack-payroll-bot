@@ -4,24 +4,12 @@ const csv = require('csv-parser');
 const path = require('path');
 const axios = require('axios');
 
-// MELHORIA: Configuração centralizada importada do novo arquivo config.js
-// Certifique-se de ter um arquivo config.js com as variáveis de ambiente
-// module.exports = {
-//   slack: {
-//     signingSecret: process.env.SLACK_SIGNING_SECRET,
-//     botToken: process.env.SLACK_BOT_TOKEN,
-//     adminChannelId: process.env.SLACK_ADMIN_CHANNEL_ID,
-//   },
-//   server: {
-//     port: process.env.PORT || 3000,
-//   },
-//   app: {
-//     messageExpirationMs: 12 * 60 * 60 * 1000 // 12 horas
-//   }
-// };
+// REQUER: O arquivo config.js deve existir e estar no mesmo diretório
 const config = require('./config');
 
-// --- SETUP INICIAL ---
+// --- CONSTANTES E SETUP INICIAL ---
+const FILE_EXPIRATION_MS = 60 * 60 * 1000; // 1 hora para arquivos temporários
+
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
@@ -34,7 +22,7 @@ const slackApp = new App({
 });
 const app = receiver.app;
 
-// --- CONSTANTES E GERENCIAMENTO DE ESTADO ---
+// --- CONSTANTES DE COLUNAS CSV ---
 const CSV_COLS = {
     SLACK_ID: 'Slack User',
     NAME: 'Name',
@@ -43,6 +31,7 @@ const CSV_COLS = {
     FERIADOS: 'Feriados Trabalhados'
 };
 
+// --- GERENCIAMENTO DE ESTADO ---
 const sentMessages = new Map();
 const processedFiles = new Set();
 
@@ -51,9 +40,10 @@ function trackMessage(timestamp, data) {
     setTimeout(() => sentMessages.delete(timestamp), config.app.messageExpirationMs);
 }
 
+// Função trackFile para evitar reprocessamento rápido de arquivos
 function trackFile(fileId) {
     processedFiles.add(fileId);
-    setTimeout(() => processedFiles.delete(fileId), config.app.messageExpirationMs);
+    setTimeout(() => processedFiles.delete(fileId), FILE_EXPIRATION_MS);
 }
 
 // --- LÓGICA DE NEGÓCIO CENTRALIZADA ---
@@ -64,6 +54,7 @@ function trackFile(fileId) {
  * @param {string} channelId - ID do canal para enviar o relatório.
  */
 async function processCsvAndNotify(filePath, channelId) {
+    let fileWasProcessed = false;
     try {
         const data = await readCsvFile(filePath);
         console.log(`Dados lidos do CSV: ${data.length} linhas.`);
@@ -71,6 +62,7 @@ async function processCsvAndNotify(filePath, channelId) {
         let reportMessages = '';
         let successCount = 0;
         const failedUsers = [];
+        fileWasProcessed = true;
 
         for (const row of data) {
             const agentName = row[CSV_COLS.NAME];
@@ -94,13 +86,12 @@ async function processCsvAndNotify(filePath, channelId) {
                     continue;
                 }
 
-                // MELHORIA: Usa a nova função que retorna blocos de mensagem
                 const messageBlocks = generateMessage(agentName, salary, faltas, feriadosTrabalhados);
                 
                 const result = await slackApp.client.chat.postMessage({
                     channel: slackUserId,
-                    blocks: messageBlocks, // Passa os blocos para a propriedade 'blocks'
-                    text: 'Detalhes de pagamento mensal. Por favor, visualize em um cliente Slack que suporte blocos de mensagem.' // Fallback text
+                    blocks: messageBlocks,
+                    text: 'Detalhes de pagamento mensal. Por favor, visualize em um cliente Slack que suporte blocos de mensagem.'
                 });
 
                 console.log(`Mensagem enviada para ${agentName} (ID: ${slackUserId})`);
@@ -108,8 +99,10 @@ async function processCsvAndNotify(filePath, channelId) {
                 successCount++;
                 reportMessages += `\n• *${agentName}:* Salário: US$${salary}, Faltas: ${faltas}, Feriados: ${feriadosTrabalhados}`;
             } catch (error) {
-                console.error(`Falha ao processar linha para ${agentName}:`, error.data || error.message);
-                failedUsers.push(agentName);
+                const errorMessage = error.data ? (error.data.error || error.message) : error.message;
+                console.error(`Falha ao processar linha para ${agentName}:`, errorMessage);
+                // CORREÇÃO: Inclui a mensagem de erro no relatório de falhas
+                failedUsers.push(`${agentName} (Erro: ${errorMessage.substring(0, 50)})`); 
             }
         }
 
@@ -117,8 +110,10 @@ async function processCsvAndNotify(filePath, channelId) {
         if (reportMessages) {
             reportText += `\n\n*Detalhes enviados:*${reportMessages}`;
         }
+        
+        // CORREÇÃO: Formatação clara do relatório de falhas
         if (failedUsers.length > 0) {
-            reportText += `\n\n❌ *Falha ao enviar para:* ${failedUsers.join(', ')}`;
+            reportText += `\n\n❌ *Falha ao enviar (Total: ${failedUsers.length}):*\n• ${failedUsers.join('\n• ')}`;
         }
 
         await slackApp.client.chat.postMessage({
@@ -133,10 +128,13 @@ async function processCsvAndNotify(filePath, channelId) {
             ? error.message
             : 'Ocorreu um erro inesperado ao processar a planilha.';
             
-        await slackApp.client.chat.postMessage({
-            channel: channelId,
-            text: `❌ ${errorMessage}`
-        });
+        if (!fileWasProcessed) {
+             await slackApp.client.chat.postMessage({
+                channel: channelId,
+                text: `❌ ${errorMessage}`
+            });
+        }
+
     } finally {
         if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
@@ -167,6 +165,7 @@ function readCsvFile(filePath) {
         });
 
         stream.on('data', (row) => {
+            // Ignora linhas totalmente vazias
             if (Object.values(row).some(val => val && val.trim() !== '')) {
                 data.push(row);
             }
@@ -178,16 +177,29 @@ function readCsvFile(filePath) {
 }
 
 /**
- * Gera um array de Slack Blocks para uma mensagem formatada.
- * @param {string} name - Nome do usuário.
- * @param {number} salary - Valor do salário.
- * @param {number} faltas - Número de faltas.
- * @param {number} feriadosTrabalhados - Número de feriados trabalhados.
- * @returns {Array<object>} - Array de blocos de mensagem do Slack.
+ * Gera um array de Slack Blocks para uma mensagem formatada (100% PT-BR).
+ * Os e-mails são carregados de forma segura pelo config.
  */
 function generateMessage(name, salary, faltas, feriadosTrabalhados) {
     const faltasText = faltas > 0 ? (faltas === 1 ? `houve *${faltas} falta*` : `houve *${faltas} faltas*`) : '*não houve faltas*';
     const feriadosText = feriadosTrabalhados > 0 ? (feriadosTrabalhados === 1 ? `trabalhou em *${feriadosTrabalhados} feriado*` : `trabalhou em *${feriadosTrabalhados} feriados*`) : '*não trabalhou em nenhum feriado*';
+
+    // OBTENDO E-MAILS RESTRITOS DO OBJETO CONFIG (CARREGADO DO RENDER)
+    const allInvoiceEmails = config.invoice.emails;
+    
+    let primaryEmail = 'corefone@domus.global'; 
+    let ccEmails = 'o supervisor de plantão'; 
+
+    // Se a lista do Render tiver e-mails, use-os
+    if (allInvoiceEmails && allInvoiceEmails.length > 0) {
+        primaryEmail = allInvoiceEmails[0]; 
+        // Formata os e-mails de cópia (CC) para exibição no Slack Markdown
+        ccEmails = allInvoiceEmails.slice(1).map(e => `\`${e}\``).join(', ');
+    } else {
+        // Fallback seguro caso a variável de ambiente não esteja carregada
+        console.warn('Variável INVOICE_EMAILS não carregada. Usando e-mails padrão simplificados.');
+    }
+
 
     return [
         {
@@ -242,7 +254,7 @@ function generateMessage(name, salary, faltas, feriadosTrabalhados) {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "```\nHonorários <mês> - Asesoramiento de atenção al cliente + cambio utilizado (US$ 1 = BR$ 5,55)\n```"
+                "text": "```\nHonorários <mês> - Assessoria de Atendimento ao Cliente + câmbio utilizado (US$ 1 = BR$ 5,55)\n```"
             }
         },
         {
@@ -269,7 +281,7 @@ function generateMessage(name, salary, faltas, feriadosTrabalhados) {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "*Caso não haja pendências*, você pode emitir a nota fiscal para `corefone@domus.global` com cópia para `administracion@corefone.us`, `gilda.romero@corefone.us`, e os supervisores."
+                "text": "*Caso não haja pendências*, você pode emitir a nota fiscal. Por favor, envie a nota para: \n\n• *Destinatário principal*: \`" + primaryEmail + "\`\n• *Com cópia (CC)*: " + ccEmails + "."
             }
         },
         {
