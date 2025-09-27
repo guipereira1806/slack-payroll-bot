@@ -1,24 +1,24 @@
 // config.js
 require('dotenv').config();
 
-const config = {
+module.exports = {
     slack: {
         signingSecret: process.env.SLACK_SIGNING_SECRET,
         botToken: process.env.SLACK_BOT_TOKEN,
-        adminChannelId: process.env.ADMIN_CHANNEL_ID,
+        adminChannelId: process.env.SLACK_ADMIN_CHANNEL_ID || 'C0123456789',
     },
     server: {
         port: process.env.PORT || 3000,
     },
     app: {
-        // 7 dias em milissegundos
-        messageExpirationMs: 7 * 24 * 60 * 60 * 1000,
+        messageExpirationMs: parseInt(process.env.MESSAGE_EXPIRATION_MS, 10) || (12 * 60 * 60 * 1000)
+    },
+    // OBTENDO A LISTA RESTRITA DIRETAMENTE DA VARIÁVEL DE AMBIENTE (RENDER)
+    invoice: {
+        // Se INVOICE_EMAILS não estiver definido, ele usará um array vazio ([]), 
+        // evitando exposição no repositório.
+        emails: process.env.INVOICE_EMAILS 
+            ? process.env.INVOICE_EMAILS.split(',').map(e => e.trim()) 
+            : [] 
     }
 };
-
-// Validação crítica: Garante que o aplicativo não inicie sem as chaves essenciais.
-if (!config.slack.signingSecret || !config.slack.botToken || !config.slack.adminChannelId) {
-    throw new Error("FATAL ERROR: Variáveis de ambiente essenciais do Slack (SLACK_SIGNING_SECRET, SLACK_BOT_TOKEN, ADMIN_CHANNEL_ID) não foram definidas!");
-}
-
-module.exports = config;
