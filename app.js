@@ -101,7 +101,7 @@ async function processCsvAndNotify(filePath, channelId) {
             } catch (error) {
                 const errorMessage = error.data ? (error.data.error || error.message) : error.message;
                 console.error(`Falha ao processar linha para ${agentName}:`, errorMessage);
-                // Correção: Inclui a mensagem de erro no relatório de falhas
+                // Inclui a mensagem de erro no relatório de falhas
                 failedUsers.push(`${agentName} (Erro: ${errorMessage.substring(0, 50)})`); 
             }
         }
@@ -111,7 +111,7 @@ async function processCsvAndNotify(filePath, channelId) {
             reportText += `\n\n*Detalhes enviados:*${reportMessages}`;
         }
         
-        // Correção: Formatação clara do relatório de falhas
+        // Formatação clara do relatório de falhas
         if (failedUsers.length > 0) {
             reportText += `\n\n❌ *Falha ao enviar (Total: ${failedUsers.length}):*\n• ${failedUsers.join('\n• ')}`;
         }
@@ -347,6 +347,10 @@ slackApp.event('reaction_added', async ({ event, client }) => {
 
         if (reaction === 'white_check_mark' && messageInfo && messageInfo.user === user) {
             const { name } = messageInfo;
+            
+            // LINHA DE DEBUGGING: MOSTRA O VALOR QUE O BOT ESTÁ LENDO DO RENDER
+            console.log(`[DEBUG ADMIN ID] O bot está lendo o ID: ${config.slack.adminChannelId}`);
+            
             await client.chat.postMessage({
                 channel: config.slack.adminChannelId,
                 text: `✅ O agente *${name}* (<@${user}>) confirmou o recebimento do salário e está de acordo com os valores.`,
@@ -354,7 +358,7 @@ slackApp.event('reaction_added', async ({ event, client }) => {
             sentMessages.delete(item.ts);
         }
     } catch (error) {
-        // CORREÇÃO: Loga a falha de envio para o canal de administração.
+        // CORREÇÃO: Loga a falha de envio para o canal de administração para diagnóstico
         console.error('Falha ao enviar confirmação para o canal Admin. Verifique SLACK_ADMIN_CHANNEL_ID e permissões do bot.', error);
     }
 });
