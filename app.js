@@ -101,7 +101,7 @@ async function processCsvAndNotify(filePath, channelId) {
             } catch (error) {
                 const errorMessage = error.data ? (error.data.error || error.message) : error.message;
                 console.error(`Falha ao processar linha para ${agentName}:`, errorMessage);
-                // CORREÇÃO: Inclui a mensagem de erro no relatório de falhas
+                // Correção: Inclui a mensagem de erro no relatório de falhas
                 failedUsers.push(`${agentName} (Erro: ${errorMessage.substring(0, 50)})`); 
             }
         }
@@ -111,7 +111,7 @@ async function processCsvAndNotify(filePath, channelId) {
             reportText += `\n\n*Detalhes enviados:*${reportMessages}`;
         }
         
-        // CORREÇÃO: Formatação clara do relatório de falhas
+        // Correção: Formatação clara do relatório de falhas
         if (failedUsers.length > 0) {
             reportText += `\n\n❌ *Falha ao enviar (Total: ${failedUsers.length}):*\n• ${failedUsers.join('\n• ')}`;
         }
@@ -178,7 +178,6 @@ function readCsvFile(filePath) {
 
 /**
  * Gera um array de Slack Blocks para uma mensagem formatada (100% PT-BR).
- * Os e-mails são carregados de forma segura pelo config.
  */
 function generateMessage(name, salary, faltas, feriadosTrabalhados) {
     const faltasText = faltas > 0 ? (faltas === 1 ? `houve *${faltas} falta*` : `houve *${faltas} faltas*`) : '*não houve faltas*';
@@ -190,7 +189,7 @@ function generateMessage(name, salary, faltas, feriadosTrabalhados) {
     let primaryEmail = 'corefone@domus.global'; 
     let ccEmails = 'o supervisor de plantão'; 
 
-    // Se a lista do Render tiver e-mails, use-os
+    // Se a lista do Render tiver e-mails, usa-os
     if (allInvoiceEmails && allInvoiceEmails.length > 0) {
         primaryEmail = allInvoiceEmails[0]; 
         // Formata os e-mails de cópia (CC) para exibição no Slack Markdown
@@ -355,7 +354,8 @@ slackApp.event('reaction_added', async ({ event, client }) => {
             sentMessages.delete(item.ts);
         }
     } catch (error) {
-        console.error('Erro ao processar reação:', error);
+        // CORREÇÃO: Loga a falha de envio para o canal de administração.
+        console.error('Falha ao enviar confirmação para o canal Admin. Verifique SLACK_ADMIN_CHANNEL_ID e permissões do bot.', error);
     }
 });
 
