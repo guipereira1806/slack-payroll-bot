@@ -97,7 +97,7 @@ async function processCsvAndNotify(filePath, channelId) {
                 console.log(`Mensagem enviada para ${agentName} (ID: ${slackUserId})`);
                 trackMessage(result.ts, { user: slackUserId, name: agentName });
                 successCount++;
-                reportMessages += `\n• *${agentName}:* Salário: US$${salary}, Faltas: ${faltas}, Feriados: ${feriadosTrabalhados}`;
+                reportMessages += `\n• *${agentName}:* Valor a Faturar: US$${salary}, Faltas: ${faltas}, Feriados: ${feriadosTrabalhados}`;
             } catch (error) {
                 const errorMessage = error.data ? (error.data.error || error.message) : error.message;
                 console.error(`Falha ao processar linha para ${agentName}:`, errorMessage);
@@ -222,7 +222,7 @@ function generateMessage(name, salary, faltas, feriadosTrabalhados) {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do seu salário referente a este mês."
+                "text": "Esperamos que esteja tudo bem. Passamos aqui para compartilhar os detalhes do seu valor a faturar referente a este mês."
             }
         },
         {
@@ -232,7 +232,8 @@ function generateMessage(name, salary, faltas, feriadosTrabalhados) {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": `*Valor a ser pago:* *US$${salary}*`
+                // ALTERAÇÃO APLICADA AQUI
+                "text": `*Valor a faturar pelo serviço prestado no mês:* *US$${salary}*` 
             }
         },
         {
@@ -353,7 +354,7 @@ slackApp.event('reaction_added', async ({ event, client }) => {
             
             await client.chat.postMessage({
                 channel: config.slack.adminChannelId,
-                text: `✅ O agente *${name}* (<@${user}>) confirmou o recebimento do salário e está de acordo com os valores.`,
+                text: `✅ O agente *${name}* (<@${user}>) confirmou o recebimento do valor a faturar e está de acordo com os valores.`,
             });
             sentMessages.delete(item.ts);
         }
